@@ -2,11 +2,12 @@ from random import sample
 
 
 class ReplayBuffer:
-    def __init__(self, buffer_size=100000, truncate_batch=True):
+    def __init__(self, buffer_size=100000, truncate_batch=True, guaranteed_size=2):
         self.buffer_size = buffer_size
         self.buffer = [None] * buffer_size
         self.idx = 0
         self.truncate_batch = truncate_batch
+        self.guaranteed_size = guaranteed_size
 
     def insert(self, sars):
         self.buffer[self.idx % self.buffer_size] = sars
@@ -25,7 +26,7 @@ class ReplayBuffer:
 
         # remove elements after first terminal state
         done_list = [s.done for s in random_sample]
-        if done_list[0] or done_list[1]:  # if sample is empty
+        if True in done_list[:self.guaranteed_size]:  # if sample is empty
             return self.sample(num_samples)
         try:
             idx_to_cut = done_list.index(True)
