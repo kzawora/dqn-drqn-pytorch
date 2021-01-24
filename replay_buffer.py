@@ -1,5 +1,5 @@
 from random import sample
-
+import logging
 
 class ReplayBuffer:
     def __init__(self, buffer_size=100000, truncate_batch=True, guaranteed_size=3):
@@ -27,6 +27,7 @@ class ReplayBuffer:
         # remove elements after first terminal state
         done_list = [s.done for s in random_sample]
         if True in done_list[:self.guaranteed_size-1]:  # check if first guaranteed_size elements don't contain terminal state
+            #logging.warning(f'd smaller than {self.guaranteed_size} detected. Re-sampling.')
             return self.sample(num_samples)
         try:
             idx_to_cut = done_list.index(True)

@@ -118,7 +118,7 @@ def main(test=False, checkpoint=None, device='cuda', project_name='drqn', run_na
     same_frame_limit = 200
 
     # replay buffer
-    replay = ReplayBuffer(memory_size)
+    replay = ReplayBuffer(memory_size, truncate_batch=True, guaranteed_size=16)
     step_num = -1 * min_rb_size
 
     # environment creation
@@ -218,4 +218,4 @@ def main(test=False, checkpoint=None, device='cuda', project_name='drqn', run_na
 
 
 if __name__ == "__main__":
-    main(project_name='dqn_drqn_breakout_sandbox', run_name='[GTX970] drqn_shallow')
+    main(project_name='dqn_drqn_breakout_sandbox', run_name='[GTX970] drqn_shallow_16_guarantee')
