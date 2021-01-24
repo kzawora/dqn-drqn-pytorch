@@ -1,13 +1,14 @@
 from typing import Any
-from random import sample, random
-import gym
+from random import random
 from dataclasses import dataclass
-import torch
-from tqdm import tqdm
-import wandb
-from time import time
 import numpy as np
+import torch
 import torch.nn.functional as F
+import wandb
+import gym
+from tqdm import tqdm
+from time import time
+# custom classes
 from env_wrappers import BreakoutFrameStackingEnv
 from replay_buffer import ReplayBuffer
 from models import DQN
@@ -24,43 +25,6 @@ class Sarsd:
 
 def update_target_model(model, target):
     target.load_state_dict(model.state_dict())
-
-
-def train_step(model, state_transitions, target, num_actions, device, gamma=0.99):
-    curr_states = torch.stack(([torch.Tensor(s.state) for s in state_transitions])).to(device)
-    rewards = torch.stack(([torch.Tensor([s.reward]) for s in state_transitions])).to(device)
-    mask = torch.stack(([torch.Tensor([0]) if s.done else torch.Tensor([1]) for s in state_transitions])).to(device)
-    next_states = torch.stack(([torch.Tensor(s.next_state) for s in state_transitions])).to(device)
-    actions = [s.action for s in state_transitions]
-    with torch.no_grad():
-        qvals_next = target(next_states).max(-1)[0]
-
-    model.opt.zero_grad()
-    qvals = model(curr_states)
-    one_hot_actions = F.one_hot(torch.LongTensor(actions), num_actions).to(device)
-
-    loss_fn = torch.nn.SmoothL1Loss()
-    loss = loss_fn(torch.sum(qvals * one_hot_actions, -1), rewards.squeeze() + mask[:, 0] * qvals_next * 0.99)
-    loss.backward()
-    model.opt.step()
-    return loss
-
-
-def run_test_episode(model, env, device, max_steps=1000):
-    frames = []
-    observation = env.reset()
-    frames.append(env.frame)
-
-    idx = 0
-    done = False
-    reward = 0
-    while not done and idx < max_steps:
-        x = torch.Tensor(observation).unsqueeze(0).to(device)
-        action = model(x).max(-1)[-1].item()
-        observation, r, done, _ = env.step(action)
-        reward += r
-        frames.append(env.frame)
-    return reward, np.stack(frames, 0)
 
 
 def policy_evaluation(model, env, device, test_episodes=10, max_steps=1000):
@@ -102,6 +66,26 @@ def policy_evaluation(model, env, device, test_episodes=10, max_steps=1000):
             best_reward = reward
             best_frames = frames
     return np.mean(rewards), best_reward, np.stack(best_frames, 0)
+
+
+def train_step(model, state_transitions, target, num_actions, device, gamma=0.99):
+    curr_states = torch.stack(([torch.Tensor(s.state) for s in state_transitions])).to(device)
+    rewards = torch.stack(([torch.Tensor([s.reward]) for s in state_transitions])).to(device)
+    mask = torch.stack(([torch.Tensor([0]) if s.done else torch.Tensor([1]) for s in state_transitions])).to(device)
+    next_states = torch.stack(([torch.Tensor(s.next_state) for s in state_transitions])).to(device)
+    actions = [s.action for s in state_transitions]
+    with torch.no_grad():
+        qvals_next = target(next_states).max(-1)[0]
+
+    model.opt.zero_grad()
+    qvals = model(curr_states)
+    one_hot_actions = F.one_hot(torch.LongTensor(actions), num_actions).to(device)
+
+    loss_fn = torch.nn.SmoothL1Loss()
+    loss = loss_fn(torch.sum(qvals * one_hot_actions, -1), rewards.squeeze() + mask[:, 0] * qvals_next * 0.99)
+    loss.backward()
+    model.opt.step()
+    return loss
 
 
 def main(test=False, checkpoint=None, device='cuda', project_name='dqn', run_name='example'):
@@ -220,6 +204,7 @@ def main(test=False, checkpoint=None, device='cuda', project_name='dqn', run_nam
                            'test_best_reward': best_reward,
                            'test_best_video': wandb.Video(frames.transpose(0, 3, 1, 2), str(best_reward), fps=24)})
     env.close()
+
 
 if __name__ == "__main__":
     main(project_name='dqn_drqn_breakout_sandbox', run_name='dqn_test_run')

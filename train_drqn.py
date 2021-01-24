@@ -216,5 +216,6 @@ def main(test=False, checkpoint=None, device='cuda', project_name='drqn', run_na
                            'test_best_video': wandb.Video(frames.transpose(0, 3, 1, 2), str(best_reward), fps=24)})
     env.close()
 
+
 if __name__ == "__main__":
     main(project_name='dqn_drqn_breakout_sandbox', run_name='[GTX970] drqn_shallow')
