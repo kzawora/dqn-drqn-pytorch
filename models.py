@@ -59,3 +59,34 @@ class DRQN(torch.nn.Module):
         y, hidden_out = self.lstm(lstm_in, hidden)
         y = self.classifier(y.squeeze(1))
         return y, hidden_out
+
+
+class DRQN_shallow(torch.nn.Module):
+    def __init__(self, obs_shape, num_actions, lr=0.0001):
+        super(DRQN_shallow, self).__init__()
+        self.obs_shape = obs_shape
+        self.num_actions = num_actions
+        self.conv_net = torch.nn.Sequential(
+            torch.nn.Conv2d(1, 32, (8, 8), stride=(4, 4)),
+            torch.nn.ReLU(),
+            torch.nn.Conv2d(32, 64, (4, 4), stride=(2, 2)),
+            torch.nn.ReLU()
+        )
+        with torch.no_grad():
+            dummy = torch.zeros((1, *obs_shape))
+            x = self.conv_net(dummy)
+            s = x.shape
+            lstm_size = s[1] * s[2] * s[3]
+
+        self.lstm = torch.nn.LSTM(lstm_size, 256)
+        self.classifier = torch.nn.Linear(256, num_actions)
+
+        self.opt = optim.Adam(self.parameters(), lr=lr)  # was rmsprop optimizer
+
+    def forward(self, x, hidden=None):
+        y = self.conv_net(x / 255.0)
+        lstm_in = y.view(y.shape[0], 1, -1)
+        y, hidden_out = self.lstm(lstm_in, hidden)
+        y = self.classifier(y.squeeze(1))
+        return y, hidden_out
+

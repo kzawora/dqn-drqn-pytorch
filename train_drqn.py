@@ -10,7 +10,7 @@ from tqdm import tqdm
 from time import time
 # custom classes
 from env_wrappers import BreakoutEnv
-from models import DRQN
+from models import DRQN_shallow as DRQN
 from replay_buffer import ReplayBuffer
 
 
@@ -217,4 +217,4 @@ def main(test=False, checkpoint=None, device='cuda', project_name='drqn', run_na
     env.close()
 
 if __name__ == "__main__":
-    main(project_name='dqn_drqn_breakout_sandbox', run_name='drqn_test_run')
+    main(project_name='dqn_drqn_breakout_sandbox', run_name='[GTX970] drqn_shallow')
