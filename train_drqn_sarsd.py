@@ -22,7 +22,6 @@ class Sarsd:
     next_state: Any
     done: bool
 
-
 def update_target_model(model, target):
     target.load_state_dict(model.state_dict())
 
@@ -102,8 +101,8 @@ def main(test=False, checkpoint=None, device='cuda', project_name='drqn', run_na
     memory_size = 500000  # DARQN paper - 500k, 400k DRQN paper
     min_rb_size = 50000  # ? z dupy wyciagniete, po ilu iteracjach zaczynamy trening
     sample_size = 32  # ? z dupy, 32 DARQN
-    lr = 0.01  # DARQN paper - 0.01
-    lr_min = 0.0025
+    lr = 0.001  # DARQN paper - 0.01
+    lr_min = 0.00025
     lr_decay = (lr - lr_min) / 1e6
     boltzmann_exploration = False  # nie bylo w papierach
     eps = 1
