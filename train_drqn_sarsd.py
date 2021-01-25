@@ -11,7 +11,7 @@ from time import time
 # custom classes
 from env_wrappers import BreakoutEnv
 from replay_buffer import ReplayBuffer
-from models import DRQN
+from models import DRQN_shallow as DRQN
 
 
 @dataclass
@@ -86,6 +86,7 @@ def train_step(model, state_transitions, target, num_actions, device, gamma=0.99
     loss_fn = torch.nn.SmoothL1Loss()
     loss = loss_fn(torch.sum(qvals * one_hot_actions, -1), rewards.squeeze() + mask[:, 0] * qvals_next * 0.99)
     loss.backward()
+    torch.nn.utils.clip_grad_value_(model.parameters(), 10)
     model.opt.step()
     return loss
 
@@ -95,24 +96,19 @@ def main(test=False, checkpoint=None, device='cuda', project_name='drqn', run_na
         wandb.init(project=project_name, name=run_name)
 
     ## HYPERPARAMETERS
-    memory_size = 500000
-    min_rb_size = 50000
-    sample_size = 32
-    lr = 0.001
-    boltzmann_exploration = False
-    eps_min = 0.05
-    eps_decay = 0.999995
-    train_interval = 4
-    update_interval = 10000
-    test_interval = 5000
+    memory_size = 500000 # DARQN paper - 500k, 400k DRQN paper
+    min_rb_size = 50000 # ? z dupy wyciagniete, po ilu iteracjach zaczynamy trening
+    sample_size = 32 # ? z dupy, 32 DARQN
+    lr = 0.01 # DARQN paper - 0.01
+    boltzmann_exploration = False # nie bylo w papierach
+    eps_min = 0.1 # DARQN - 0.1
+    eps_decay = 0.999999 # powinien byc liniowy
+    train_interval = 4 # DARQN - 4
+    update_interval = 10000 # wszystkie papiery
+    test_interval = 5000 # z dupy, bez znaczenia do zbieznosci
     episode_reward = 0
     episode_rewards = []
     screen_flicker_probability = 0.5
-
-    # additional hparams
-    living_reward = -0.01
-    same_frame_ctr = 0
-    same_frame_limit = 200
 
     # replay buffer
     replay = ReplayBuffer(memory_size, truncate_batch=True, guaranteed_size=30)
@@ -149,9 +145,8 @@ def main(test=False, checkpoint=None, device='cuda', project_name='drqn', run_na
             action = torch.distributions.Categorical(logits=logits[0]).sample().item()
         else:
             # epsilon-greedy
-            with torch.no_grad():
-                x = torch.Tensor(last_observation).unsqueeze(0).to(device)
-                qvals, hidden = model(x, hidden)
+            x = torch.Tensor(last_observation).unsqueeze(0).to(device)
+            qvals, hidden = model(x, hidden)
             if random() < eps:
                 action = env.action_space.sample()
             else:

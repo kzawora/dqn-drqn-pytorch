@@ -81,7 +81,7 @@ class DRQN_shallow(torch.nn.Module):
         self.lstm = torch.nn.LSTM(lstm_size, 256)
         self.classifier = torch.nn.Linear(256, num_actions)
 
-        self.opt = optim.Adam(self.parameters(), lr=lr)  # was rmsprop optimizer
+        self.opt = optim.RMSprop(self.parameters(), lr=lr, momentum=0.95)  # was rmsprop optimizer
 
     def forward(self, x, hidden=None):
         y = self.conv_net(x / 255.0)
