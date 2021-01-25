@@ -69,7 +69,7 @@ def policy_evaluation(model, env, device, test_episodes=10, max_steps=1000):
     return np.mean(rewards), best_reward, np.stack(best_frames, 0)
 
 
-def train_step(model, state_transitions, target, num_actions, device, gamma=0.99):
+def train_step(model, state_transitions, target, num_actions, device, gamma=0.99, gradient_clipping=True):
     curr_states = torch.stack(([torch.Tensor(s.state) for s in state_transitions])).to(device)
     actions = [s.action for s in state_transitions[:-1]]
     rewards = torch.stack(([torch.Tensor([s.reward]) for s in state_transitions[:-1]])).to(device)
@@ -88,6 +88,7 @@ def train_step(model, state_transitions, target, num_actions, device, gamma=0.99
 
     model.opt.zero_grad()
     loss.backward()
+    torch.nn.utils.clip_grad_value_(model.parameters(), 10)
     model.opt.step()
 
     return loss
@@ -99,13 +100,13 @@ def main(test=False, checkpoint=None, device='cuda', project_name='drqn', run_na
 
     ## HYPERPARAMETERS
     memory_size = 500000
-    min_rb_size = 50000
-    sample_size = 32
-    lr = 0.0001
+    min_rb_size = 100000
+    sample_size = 64
+    lr = 0.005
     boltzmann_exploration = False
     eps_min = 0.05
     eps_decay = 0.999995
-    train_interval = 4
+    train_interval = 8
     update_interval = 10000
     test_interval = 5000
     episode_reward = 0
@@ -118,7 +119,7 @@ def main(test=False, checkpoint=None, device='cuda', project_name='drqn', run_na
     same_frame_limit = 200
 
     # replay buffer
-    replay = ReplayBuffer(memory_size, truncate_batch=True, guaranteed_size=16)
+    replay = ReplayBuffer(memory_size, truncate_batch=True, guaranteed_size=32)
     step_num = -1 * min_rb_size
 
     # environment creation
@@ -218,4 +219,4 @@ def main(test=False, checkpoint=None, device='cuda', project_name='drqn', run_na
 
 
 if __name__ == "__main__":
-    main(project_name='dqn_drqn_breakout_sandbox', run_name='[GTX970] drqn_shallow_16_guarantee')
+    main(project_name='dqn_drqn_breakout_sandbox', run_name='[GTX970] drqn_shallow_32_guarantee_lr0_005_gradient_clipping')

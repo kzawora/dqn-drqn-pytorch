@@ -9,9 +9,9 @@ import gym
 from tqdm import tqdm
 from time import time
 # custom classes
-from env_wrappers import BreakoutFrameStackingEnv
+from env_wrappers import BreakoutEnv
 from replay_buffer import ReplayBuffer
-from models import DQN
+from models import DRQN
 
 
 @dataclass
@@ -41,14 +41,15 @@ def policy_evaluation(model, env, device, test_episodes=10, max_steps=1000):
         frames = []
         last_observation = env.reset()
         frames.append(env.frame)
+        hidden = None
         while (not done) and (idx < max_steps):
+            with torch.no_grad():
+                x = torch.Tensor(last_observation).unsqueeze(0).to(device)
+                qvals, hidden = model(x, hidden)
             if eps_greedy and random() < eps:
                 action = env.action_space.sample()
             else:
-                with torch.no_grad():
-                    x = torch.Tensor(last_observation).unsqueeze(0).to(device)
-                    qvals = model(x)
-                    action = qvals.max(-1)[-1].item()
+                action = qvals.max(-1)[-1].item()
             observation, r, done, _ = env.step(action)
             if np.array_equal(last_observation, observation):
                 same_frame_ctr += 1
@@ -75,10 +76,11 @@ def train_step(model, state_transitions, target, num_actions, device, gamma=0.99
     next_states = torch.stack(([torch.Tensor(s.next_state) for s in state_transitions])).to(device)
     actions = [s.action for s in state_transitions]
     with torch.no_grad():
-        qvals_next = target(next_states).max(-1)[0]
+        qvals_next, _ = target(next_states)
+        qvals_next = qvals_next.max(-1)[0]
 
     model.opt.zero_grad()
-    qvals = model(curr_states)
+    qvals, _ = model(curr_states)
     one_hot_actions = F.one_hot(torch.LongTensor(actions), num_actions).to(device)
 
     loss_fn = torch.nn.SmoothL1Loss()
@@ -88,15 +90,15 @@ def train_step(model, state_transitions, target, num_actions, device, gamma=0.99
     return loss
 
 
-def main(test=False, checkpoint=None, device='cuda', project_name='dqn', run_name='example'):
+def main(test=False, checkpoint=None, device='cuda', project_name='drqn', run_name='example'):
     if not test:
         wandb.init(project=project_name, name=run_name)
 
     ## HYPERPARAMETERS
     memory_size = 500000
     min_rb_size = 50000
-    sample_size = 64
-    lr = 0.0001
+    sample_size = 32
+    lr = 0.001
     boltzmann_exploration = False
     eps_min = 0.05
     eps_decay = 0.999995
@@ -113,23 +115,24 @@ def main(test=False, checkpoint=None, device='cuda', project_name='dqn', run_nam
     same_frame_limit = 200
 
     # replay buffer
-    replay = ReplayBuffer(memory_size)
+    replay = ReplayBuffer(memory_size, truncate_batch=True, guaranteed_size=30)
     step_num = -1 * min_rb_size
 
     # environment creation
     env = gym.make('BreakoutDeterministic-v4')
-    env = BreakoutFrameStackingEnv(env, 84, 84, 4)
+    env = BreakoutEnv(env, 84, 84)
     test_env = gym.make('BreakoutDeterministic-v4')
-    test_env = BreakoutFrameStackingEnv(test_env, 84, 84, 4)
+    test_env = BreakoutEnv(test_env, 84, 84)
     last_observation = env.reset()
 
     # model creation
-    model = DQN(env.observation_space.shape, env.action_space.n, lr=lr).to(device)
+    model = DRQN(env.observation_space.shape, env.action_space.n, lr=lr).to(device)
     if checkpoint is not None:
         model.load_state_dict(torch.load(checkpoint))
-    target = DQN(env.observation_space.shape, env.action_space.n).to(device)
+    target = DRQN(env.observation_space.shape, env.action_space.n).to(device)
     update_target_model(model, target)
 
+    hidden = None
     # training loop
     tq = tqdm()
     while True:
@@ -142,15 +145,16 @@ def main(test=False, checkpoint=None, device='cuda', project_name='dqn', run_nam
             eps = 0
         if boltzmann_exploration:
             x = torch.Tensor(last_observation).unsqueeze(0).to(device)
-            logits = model(x)
+            logits, hidden = model(x, hidden)
             action = torch.distributions.Categorical(logits=logits[0]).sample().item()
         else:
             # epsilon-greedy
+            with torch.no_grad():
+                x = torch.Tensor(last_observation).unsqueeze(0).to(device)
+                qvals, hidden = model(x, hidden)
             if random() < eps:
                 action = env.action_space.sample()
             else:
-                x = torch.Tensor(last_observation).unsqueeze(0).to(device)
-                qvals = model(x)
                 action = qvals.max(-1)[-1].item()
 
         # screen flickering
@@ -167,6 +171,7 @@ def main(test=False, checkpoint=None, device='cuda', project_name='dqn', run_nam
 
         # episode end logic
         if done:
+            hidden = None
             episode_rewards.append(episode_reward)
             if len(episode_rewards) > 100:
                 del episode_rewards[0]
@@ -207,4 +212,4 @@ def main(test=False, checkpoint=None, device='cuda', project_name='dqn', run_nam
 
 
 if __name__ == "__main__":
-    main(project_name='dqn_drqn_breakout_sandbox', run_name='dqn_test_run')
+    main(project_name='dqn_drqn_breakout_sandbox', run_name='[GTX970] drqn_sarsd_hidden_fix')
