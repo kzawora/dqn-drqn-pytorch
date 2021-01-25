@@ -69,7 +69,7 @@ def policy_evaluation(model, env, device, test_episodes=10, max_steps=1000):
     return np.mean(rewards), best_reward, np.stack(best_frames, 0)
 
 
-def train_step(model, state_transitions, target, num_actions, device, gamma=0.99):
+def train_step(model, state_transitions, target, num_actions, lr, device, gamma=0.99):
     curr_states = torch.stack(([torch.Tensor(s.state) for s in state_transitions])).to(device)
     rewards = torch.stack(([torch.Tensor([s.reward]) for s in state_transitions])).to(device)
     mask = torch.stack(([torch.Tensor([0]) if s.done else torch.Tensor([1]) for s in state_transitions])).to(device)
@@ -80,11 +80,14 @@ def train_step(model, state_transitions, target, num_actions, device, gamma=0.99
         qvals_next = qvals_next.max(-1)[0]
 
     model.opt.zero_grad()
+    for g in model.opt.param_groups:
+        g['lr'] = lr
+
     qvals, _ = model(curr_states)
     one_hot_actions = F.one_hot(torch.LongTensor(actions), num_actions).to(device)
 
     loss_fn = torch.nn.SmoothL1Loss()
-    loss = loss_fn(torch.sum(qvals * one_hot_actions, -1), rewards.squeeze() + mask[:, 0] * qvals_next * 0.99)
+    loss = loss_fn(torch.sum(qvals * one_hot_actions, -1), rewards.squeeze() + mask[:, 0] * qvals_next * gamma)
     loss.backward()
     torch.nn.utils.clip_grad_value_(model.parameters(), 10)
     model.opt.step()
@@ -96,22 +99,25 @@ def main(test=False, checkpoint=None, device='cuda', project_name='drqn', run_na
         wandb.init(project=project_name, name=run_name)
 
     ## HYPERPARAMETERS
-    memory_size = 500000 # DARQN paper - 500k, 400k DRQN paper
-    min_rb_size = 50000 # ? z dupy wyciagniete, po ilu iteracjach zaczynamy trening
-    sample_size = 32 # ? z dupy, 32 DARQN
-    lr = 0.01 # DARQN paper - 0.01
-    boltzmann_exploration = False # nie bylo w papierach
-    eps_min = 0.1 # DARQN - 0.1
-    eps_decay = 0.999999 # powinien byc liniowy
-    train_interval = 4 # DARQN - 4
-    update_interval = 10000 # wszystkie papiery
-    test_interval = 5000 # z dupy, bez znaczenia do zbieznosci
+    memory_size = 500000  # DARQN paper - 500k, 400k DRQN paper
+    min_rb_size = 50000  # ? z dupy wyciagniete, po ilu iteracjach zaczynamy trening
+    sample_size = 32  # ? z dupy, 32 DARQN
+    lr = 0.01  # DARQN paper - 0.01
+    lr_min = 0.0025
+    lr_decay = (lr - lr_min) / 1e6
+    boltzmann_exploration = False  # nie bylo w papierach
+    eps = 1
+    eps_min = 0.1  # DARQN - 0.1
+    eps_decay = (eps - eps_min) / 1e6  # powinien byc liniowy
+    train_interval = 4  # DARQN - 4
+    update_interval = 10000  # wszystkie papiery
+    test_interval = 5000  # z dupy, bez znaczenia do zbieznosci
     episode_reward = 0
     episode_rewards = []
     screen_flicker_probability = 0.5
 
     # replay buffer
-    replay = ReplayBuffer(memory_size, truncate_batch=True, guaranteed_size=30)
+    replay = ReplayBuffer(memory_size, truncate_batch=True, guaranteed_size=6)
     step_num = -1 * min_rb_size
 
     # environment creation
@@ -136,7 +142,8 @@ def main(test=False, checkpoint=None, device='cuda', project_name='drqn', run_na
             env.render()
             time.sleep(0.05)
         tq.update(1)
-        eps = max(eps_min, eps_decay ** (step_num))
+        eps = max(eps_min, eps - eps_decay)
+        lr = max(lr_min, lr - lr_decay)
         if test:
             eps = 0
         if boltzmann_exploration:
@@ -181,11 +188,12 @@ def main(test=False, checkpoint=None, device='cuda', project_name='drqn', run_na
         # testing, model updating and checkpointing
         if (not test) and (replay.idx > min_rb_size):
             if step_num % train_interval == 0:
-                loss = train_step(model, replay.sample(sample_size), target, env.action_space.n, device)
+                loss = train_step(model, replay.sample(sample_size), target, env.action_space.n, lr, device)
                 wandb.log(
                     {
                         "loss": loss.detach().cpu().item(),
-                        "step": step_num
+                        "step": step_num,
+                        "lr": lr
                     }
                 )
                 if not boltzmann_exploration:
@@ -207,4 +215,4 @@ def main(test=False, checkpoint=None, device='cuda', project_name='drqn', run_na
 
 
 if __name__ == "__main__":
-    main(project_name='dqn_drqn_breakout_sandbox', run_name='[GTX970] drqn_sarsd_hidden_fix')
+    main(project_name='dqn_drqn_breakout_sandbox', run_name='[GTX970] drqn_sarsd_hparams_fixed')
