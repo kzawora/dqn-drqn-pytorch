@@ -11,7 +11,7 @@ from time import time
 # custom classes
 from env_wrappers import BreakoutEnv
 from replay_buffer import ReplayBuffer
-from models import DRQN_shallow as DRQN
+from models import DRQN
 
 
 @dataclass
@@ -26,7 +26,7 @@ def update_target_model(model, target):
     target.load_state_dict(model.state_dict())
 
 
-def policy_evaluation(model, env, device, test_episodes=10, max_steps=1000):
+def policy_evaluation(model, env, device, test_episodes=10, max_steps=1000, boltzmann_exploration=False):
     best_frames = []
     best_reward = -999999
     rewards = []
@@ -42,13 +42,19 @@ def policy_evaluation(model, env, device, test_episodes=10, max_steps=1000):
         frames.append(env.frame)
         hidden = None
         while (not done) and (idx < max_steps):
-            with torch.no_grad():
-                x = torch.Tensor(last_observation).unsqueeze(0).to(device)
-                qvals, hidden = model(x, hidden)
-            if eps_greedy and random() < eps:
-                action = env.action_space.sample()
+            if boltzmann_exploration:
+                with torch.no_grad():
+                    x = torch.Tensor(last_observation).unsqueeze(0).to(device)
+                    logits, hidden = model(x, hidden)
+                    action = torch.distributions.Categorical(logits=logits[0]).sample().item()
             else:
-                action = qvals.max(-1)[-1].item()
+                with torch.no_grad():
+                    x = torch.Tensor(last_observation).unsqueeze(0).to(device)
+                    qvals, hidden = model(x, hidden)
+                if eps_greedy and random() < eps:
+                    action = env.action_space.sample()
+                else:
+                    action = qvals.max(-1)[-1].item()
             observation, r, done, _ = env.step(action)
             if np.array_equal(last_observation, observation):
                 same_frame_ctr += 1
@@ -79,8 +85,8 @@ def train_step(model, state_transitions, target, num_actions, lr, device, gamma=
         qvals_next = qvals_next.max(-1)[0]
 
     model.opt.zero_grad()
-    for g in model.opt.param_groups:
-        g['lr'] = lr
+   # for g in model.opt.param_groups:
+   #     g['lr'] = lr
 
     qvals, _ = model(curr_states)
     one_hot_actions = F.one_hot(torch.LongTensor(actions), num_actions).to(device)
@@ -101,7 +107,7 @@ def main(test=False, checkpoint=None, device='cuda', project_name='drqn', run_na
     memory_size = 500000  # DARQN paper - 500k, 400k DRQN paper
     min_rb_size = 50000  # ? z dupy wyciagniete, po ilu iteracjach zaczynamy trening
     sample_size = 32  # ? z dupy, 32 DARQN
-    lr = 0.001  # DARQN paper - 0.01
+    lr = 0.1  # DARQN paper - 0.01
     lr_min = 0.00025
     lr_decay = (lr - lr_min) / 1e6
     boltzmann_exploration = False  # nie bylo w papierach
@@ -116,7 +122,7 @@ def main(test=False, checkpoint=None, device='cuda', project_name='drqn', run_na
     screen_flicker_probability = 0.5
 
     # replay buffer
-    replay = ReplayBuffer(memory_size, truncate_batch=True, guaranteed_size=6)
+    replay = ReplayBuffer(memory_size, truncate_batch=True, guaranteed_size=2)
     step_num = -1 * min_rb_size
 
     # environment creation
@@ -142,7 +148,7 @@ def main(test=False, checkpoint=None, device='cuda', project_name='drqn', run_na
             time.sleep(0.05)
         tq.update(1)
         eps = max(eps_min, eps - eps_decay)
-        lr = max(lr_min, lr - lr_decay)
+        #lr = max(lr_min, lr - lr_decay)
         if test:
             eps = 0
         if boltzmann_exploration:
@@ -178,7 +184,7 @@ def main(test=False, checkpoint=None, device='cuda', project_name='drqn', run_na
                 del episode_rewards[0]
             wandb.log({
                 "reward_ep": episode_reward,
-                "avg_reward_100ep": np.mean(episode_rewards)
+                "avg_reward_100ep": 0 if len(episode_rewards) != 100 else np.mean(episode_rewards)
             })
             episode_reward = 0
             last_observation = env.reset()
@@ -206,7 +212,7 @@ def main(test=False, checkpoint=None, device='cuda', project_name='drqn', run_na
                 wandb.log_artifact(model_artifact)
             if step_num % test_interval == 0:
                 print('running test')
-                avg_reward, best_reward, frames = policy_evaluation(model, test_env, device)  # model or target?
+                avg_reward, best_reward, frames = policy_evaluation(model, test_env, device, boltzmann_exploration=boltzmann_exploration)  # model or target?
                 wandb.log({'test_avg_reward': avg_reward,
                            'test_best_reward': best_reward,
                            'test_best_video': wandb.Video(frames.transpose(0, 3, 1, 2), str(best_reward), fps=24)})
@@ -214,4 +220,4 @@ def main(test=False, checkpoint=None, device='cuda', project_name='drqn', run_na
 
 
 if __name__ == "__main__":
-    main(project_name='dqn_drqn_breakout_sandbox', run_name='[GTX970] drqn_sarsd_hparams_fixed')
+    main(project_name='dqn_drqn_breakout_sandbox', run_name='[GTX970] ADADELTA_deterministic')

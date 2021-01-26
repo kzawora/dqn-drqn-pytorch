@@ -51,7 +51,7 @@ class DRQN(torch.nn.Module):
         self.lstm = torch.nn.LSTM(lstm_size, 512)
         self.classifier = torch.nn.Linear(512, num_actions)
 
-        self.opt = optim.RMSprop(self.parameters(), lr=lr, momentum=0.95)  # was Adam optimizer
+        self.opt = optim.Adadelta(self.parameters(), lr=lr, rho=0.95)  # was Adam optimizer
 
     def forward(self, x, hidden=None):
         y = self.conv_net(x / 255.0)
